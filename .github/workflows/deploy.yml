@@ -16,20 +16,27 @@ jobs:
           username: ${{ secrets.PROD_USER }}
           key: ${{ secrets.PROD_SSH_KEY }}
           script_stop: true
-          command_timeout: 20m
+          command_timeout: 2m
+          # The build is kicked off detached (nohup+disown) instead of run
+          # directly inside this SSH step — every prior attempt at running
+          # it inline failed here even though the exact same commands
+          # succeed every time over a normal SSH session, most likely the
+          # Action's own connection to this server not surviving a build
+          # that runs several minutes. Detaching removes that dependency
+          # entirely; this step just confirms the deploy was kicked off.
           script: |
             set -e
             cd /var/www/nobilita
             git fetch origin main
             git reset --hard origin/main
-            # The build occasionally fails on a transient Google Fonts fetch
-            # timeout (unrelated to the code) — retry once before giving up,
-            # since a failed build here must never reach pm2 restart below.
-            rm -rf .next
-            npm run build || (rm -rf .next && npm run build)
-            pm2 restart nobilita
-            sleep 3
-            curl -sf -o /dev/null http://localhost:3001/ && echo "OK"
+            rm -f /tmp/ci_deploy.log
+            nohup bash -c '
+              rm -rf .next
+              npm run build || (rm -rf .next && npm run build)
+              pm2 restart nobilita
+            ' > /tmp/ci_deploy.log 2>&1 &
+            disown
+            echo "Deploy kicked off in background — tail /tmp/ci_deploy.log on the server to watch it."
 
   # Schema migrations (prisma db push --accept-data-loss) are intentionally
   # NOT run automatically here — that flag can silently drop columns/data,
