@@ -1,4 +1,4 @@
-name: Deploy to nobilita.adaptsmedia.info
+name: Deploy to Production
 
 on:
   push:
@@ -9,26 +9,24 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Set up deploy SSH key
-        run: |
-          mkdir -p ~/.ssh
-          printf '%s' "${{ secrets.DEPLOY_SSH_KEY }}" | tr -d ' \n\r' | base64 -d > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          echo "--- key file (first line only) ---"
-          head -n1 ~/.ssh/deploy_key
-          echo "--- validate key ---"
-          ssh-keygen -y -f ~/.ssh/deploy_key -P "" > /dev/null && echo "KEY_VALID" || echo "KEY_INVALID"
-          echo "--- keyscan ---"
-          ssh-keyscan -v -p 22 "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>&1 || echo "KEYSCAN_EXIT_CODE=$?"
-          echo "--- known_hosts ---"
-          cat ~/.ssh/known_hosts || true
+      - name: SSH deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            cd /var/www/nobilita
+            git fetch origin main
+            git reset --hard origin/main
+            npm run build
+            pm2 restart nobilita
+            sleep 3
+            curl -sf -o /dev/null http://localhost:3001/ && echo "OK"
 
-      - name: Run remote deploy script
-        run: |
-          ssh -vvv -i ~/.ssh/deploy_key -p 22 -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
-            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
-            "bash ~/nobilita.adaptsmedia.info/deploy.sh" || echo "SSH_EXIT_CODE=$?"
-
-      - name: Clean up key
-        if: always()
-        run: rm -f ~/.ssh/deploy_key
+  # Schema migrations (prisma db push --accept-data-loss) are intentionally
+  # NOT run automatically here — that flag can silently drop columns/data,
+  # so it stays a manual SSH step whenever a change actually touches
+  # prisma/schema.prisma, same as before this pipeline existed.
