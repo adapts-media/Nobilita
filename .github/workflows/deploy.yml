@@ -21,7 +21,10 @@ jobs:
             cd /var/www/nobilita
             git fetch origin main
             git reset --hard origin/main
-            npm run build
+            # The build occasionally fails on a transient Google Fonts fetch
+            # timeout (unrelated to the code) — retry once before giving up,
+            # since a failed build here must never reach pm2 restart below.
+            npm run build || npm run build
             pm2 restart nobilita
             sleep 3
             curl -sf -o /dev/null http://localhost:3001/ && echo "OK"
