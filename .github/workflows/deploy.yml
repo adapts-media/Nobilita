@@ -24,7 +24,8 @@ jobs:
             # The build occasionally fails on a transient Google Fonts fetch
             # timeout (unrelated to the code) — retry once before giving up,
             # since a failed build here must never reach pm2 restart below.
-            npm run build || npm run build
+            rm -rf .next
+            npm run build || (rm -rf .next && npm run build)
             pm2 restart nobilita
             sleep 3
             curl -sf -o /dev/null http://localhost:3001/ && echo "OK"
